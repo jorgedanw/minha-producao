@@ -18,7 +18,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       devOptions: {
-        enabled: true,      // habilita SW já em `npm run dev`
+        enabled: false,      // SW **desabilitado** em dev:
+      devOptions: { enabled: false },
       },
       filename: 'sw.js',    // gera `sw.js` em vez de sw.ts
       includeAssets: ['icons/192.png', 'icons/512.png'],
