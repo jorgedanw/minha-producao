@@ -1,0 +1,55 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Tenant {
+  id      String   @id @default(cuid())
+  name    String
+  users   User[]
+  sectors Sector[]
+  orders  Order[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  tenantId  String
+}
+
+model Sector {
+  id         String      @id @default(cuid())
+  name       String
+  weight     Int
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  tenantId   String
+  orderSteps OrderStep[]
+}
+
+model Order {
+  id         String      @id @default(cuid())
+  createdAt  DateTime    @default(now())
+  color      String
+  delivery   String
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  tenantId   String
+  orderSteps OrderStep[]
+}
+
+model OrderStep {
+  id         String   @id @default(cuid())
+  status     String
+  startedAt  DateTime?
+  finishedAt DateTime?
+  order      Order    @relation(fields: [orderId], references: [id])
+  orderId    String
+  sector     Sector   @relation(fields: [sectorId], references: [id])
+  sectorId   String
+}
