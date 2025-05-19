@@ -16,19 +16,17 @@ const prisma = new PrismaClient();
 const app = express();
 
 // 4) Configuração de CORS
-const allowedOrigins = [
-  'http://localhost:5173',                       // dev
-  'https://minha-producao-pwa.vercel.app'        // front em produção
-];
-
 app.use(cors({
   origin: (origin, callback) => {
-    // permitir requests sem origin (curl, Postman, etc.)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    // sem origin (curl, Postman) ou localhost → ok
+    if (!origin || origin.startsWith('http://localhost')) {
       return callback(null, true);
     }
-    // Negar outras origens
+    // qualquer subdomínio *.vercel.app → ok
+    if (origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    // caso contrário, bloqueia
     return callback(new Error('CORS não autorizado pelo servidor'), false);
   },
   methods: ['GET','POST','PATCH','DELETE','OPTIONS'],
