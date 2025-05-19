@@ -15,10 +15,10 @@ const prisma = new PrismaClient();
 // 3) Cria a aplicação Express
 const app = express();
 
-// 4) Configuração de CORS
+// 4) Middleware CORS: libera localhost em dev e qualquer subdomínio vercel.app em prod
 app.use(cors({
   origin: (origin, callback) => {
-    // sem origin (curl, Postman) ou localhost → ok
+    // sem origin (curl, Postman) ou em localhost → ok
     if (!origin || origin.startsWith('http://localhost')) {
       return callback(null, true);
     }
@@ -36,12 +36,12 @@ app.use(cors({
 // 5) Middleware para parse automático de JSON
 app.use(express.json());
 
-// 6) Rota pública de health-check
-app.get('/api/health', (req, res) => {
+// 6) Health-check público
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// 7) Rota de login: valida usuário e gera JWT
+// 7) Login: valida usuário e retorna JWT
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -69,7 +69,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// 8) Middleware de autenticação (protege rotas seguintes)
+// 8) Middleware de autenticação para proteger rotas seguintes
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader?.split(' ')[1];
@@ -129,7 +129,7 @@ app.patch('/api/sectors/:id', authenticateToken, async (req, res) => {
 app.delete('/api/sectors/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    // remove steps dependentes primeiro
+    // primeiro remove os steps que dependem deste setor
     await prisma.orderStep.deleteMany({ where: { sectorId: id } });
     await prisma.sector.delete({ where: { id } });
     res.status(204).end();
