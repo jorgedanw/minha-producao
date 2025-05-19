@@ -15,39 +15,63 @@ const prisma = new PrismaClient();
 // 3) Cria a aplicação Express
 const app = express();
 
-// 4) Middlewares globais
-app.use(cors({ origin: 'http://localhost:5173' })); // libera o front em 5173
-app.use(express.json());                              // parse automático de JSON
+// 4) Configuração de CORS
+const allowedOrigins = [
+  'http://localhost:5173',                       // dev
+  'https://minha-producao-pwa.vercel.app'        // front em produção
+];
 
-// 5) Rota pública de health-check
+app.use(cors({
+  origin: (origin, callback) => {
+    // permitir requests sem origin (curl, Postman, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Negar outras origens
+    return callback(new Error('CORS não autorizado pelo servidor'), false);
+  },
+  methods: ['GET','POST','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
+
+// 5) Middleware para parse automático de JSON
+app.use(express.json());
+
+// 6) Rota pública de health-check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() });
 });
 
-// 6) Rota de login: valida usuário e gera JWT
+// 7) Rota de login: valida usuário e gera JWT
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password)
-    return res.status(400).json({ error: 'E-mail e senha são obrigatórios' });
+  try {
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.status(400).json({ error: 'E-mail e senha são obrigatórios' });
 
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user)
-    return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user)
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
 
-  const match = await bcrypt.compare(password, user.password);
-  if (!match)
-    return res.status(401).json({ error: 'Usuário ou senha inválidos' });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match)
+      return res.status(401).json({ error: 'Usuário ou senha inválidos' });
 
-  const token = jwt.sign(
-    { userId: user.id, tenantId: user.tenantId },
-    process.env.JWT_SECRET,
-    { expiresIn: '1h' }
-  );
+    const token = jwt.sign(
+      { userId: user.id, tenantId: user.tenantId },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
 
-  res.json({ token });
+    return res.json({ token });
+  } catch (err) {
+    console.error('Erro no POST /api/login:', err);
+    return res.status(500).json({ error: 'Erro interno no servidor' });
+  }
 });
 
-// 7) Middleware de autenticação (protege rotas seguintes)
+// 8) Middleware de autenticação (protege rotas seguintes)
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader?.split(' ')[1];
@@ -61,7 +85,7 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// 8) Perfil do usuário logado
+// 9) Perfil do usuário logado
 app.get('/api/me', authenticateToken, async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.userId },
@@ -70,7 +94,7 @@ app.get('/api/me', authenticateToken, async (req, res) => {
   res.json(user);
 });
 
-// 9) CRUD Setores
+// 10) CRUD Setores
 app.get('/api/sectors', authenticateToken, async (req, res) => {
   const sectors = await prisma.sector.findMany({
     where: { tenantId: req.tenantId },
@@ -107,16 +131,17 @@ app.patch('/api/sectors/:id', authenticateToken, async (req, res) => {
 app.delete('/api/sectors/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
+    // remove steps dependentes primeiro
     await prisma.orderStep.deleteMany({ where: { sectorId: id } });
     await prisma.sector.delete({ where: { id } });
     res.status(204).end();
   } catch (err) {
-    console.error(err);
+    console.error('Erro ao deletar setor:', err);
     res.status(500).json({ error: 'Falha ao deletar setor' });
   }
 });
 
-// 10) CRUD Ordens
+// 11) CRUD Ordens
 app.post('/api/orders', authenticateToken, async (req, res) => {
   const { color, delivery } = req.body;
   if (!color || !delivery)
@@ -128,7 +153,9 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
 
   const order = await prisma.order.create({ data: { color, delivery, tenantId: req.tenantId } });
   const steps = await Promise.all(
-    sectors.map(s => prisma.orderStep.create({ data: { orderId: order.id, sectorId: s.id, status: 'pending' } }))
+    sectors.map(s =>
+      prisma.orderStep.create({ data: { orderId: order.id, sectorId: s.id, status: 'pending' } })
+    )
   );
   res.status(201).json({ order, steps });
 });
@@ -156,7 +183,7 @@ app.patch('/api/orders/:orderId/steps/:stepId', authenticateToken, async (req, r
   res.json(step);
 });
 
-// 11) CRUD Usuários
+// 12) CRUD Usuários
 app.get('/api/users', authenticateToken, async (req, res) => {
   const users = await prisma.user.findMany({
     where: { tenantId: req.tenantId },
@@ -175,7 +202,9 @@ app.post('/api/users', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'E-mail já cadastrado' });
 
   const hash = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({ data: { name, email, password: hash, tenantId: req.tenantId } });
+  const user = await prisma.user.create({
+    data: { name, email, password: hash, tenantId: req.tenantId }
+  });
   res.status(201).json({ id: user.id, name: user.name, email: user.email });
 });
 
@@ -185,7 +214,12 @@ app.patch('/api/users/:id', authenticateToken, async (req, res) => {
   const data = {};
   if (name !== undefined) data.name = name;
   if (password !== undefined) data.password = await bcrypt.hash(password, 10);
-  const user = await prisma.user.update({ where: { id }, data, select: { id: true, name: true, email: true } });
+
+  const user = await prisma.user.update({
+    where: { id },
+    data,
+    select: { id: true, name: true, email: true }
+  });
   res.json(user);
 });
 
@@ -197,7 +231,7 @@ app.delete('/api/users/:id', authenticateToken, async (req, res) => {
   res.status(204).end();
 });
 
-// 12) Inicia o servidor na porta definida em .env (fallback 3000)
+// 13) Inicia o servidor na porta definida em .env (fallback 3000)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server rodando em http://localhost:${PORT}`);
